@@ -1,0 +1,3 @@
+# Supabase Postgres + pgvector as system of record
+
+All durable domain data (Articles, Stories, Instruments, scores, Watchlists) lives in **Supabase Postgres** (free-tier starting point). **pgvector** stores Article embeddings used primarily for **automatic Story clustering** (similarity), not as a separate search product in v1. We rejected a document DB and a local SQLite-first path: relational many-to-many links (Story↔Instrument, Article↔Source, Watchlist) matter, and managed Postgres matches free-tier and Realtime later. 500MB free-tier size is an accepted constraint on Research Window breadth until we upgrade.
