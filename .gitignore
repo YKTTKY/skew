@@ -34,8 +34,10 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# local agent scratch (issue tracker)
-.scratch/
+# agent scratch: track specs/tickets in git; ignore non-markdown ephemera
+.scratch/**
+!.scratch/**/
+!.scratch/**/*.md
 
 # tooling
 .turbo/
