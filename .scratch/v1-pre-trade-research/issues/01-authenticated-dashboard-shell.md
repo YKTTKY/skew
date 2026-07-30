@@ -4,10 +4,20 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Unauthenticated visitors cannot access Watchlist or Instrument research surfaces
-- [ ] Retail Trader can sign up / sign in / sign out
-- [ ] Signed-in Retail Trader sees an authenticated empty home with a clear empty state
-- [ ] One Retail Trader cannot observe another’s personal surfaces (identity/RLS baseline)
-- [ ] Automated tests assert auth-gate behavior at the Pre-Trade Research surface (not vendor SDK internals)
+- [x] Unauthenticated visitors cannot access Watchlist or Instrument research surfaces
+- [x] Retail Trader can sign up / sign in / sign out
+- [x] Signed-in Retail Trader sees an authenticated empty home with a clear empty state
+- [x] One Retail Trader cannot observe another’s personal surfaces (identity/RLS baseline)
+- [x] Automated tests assert auth-gate behavior at the Pre-Trade Research surface (not vendor SDK internals)
+
+## Comments
+
+### Implementation notes (agent)
+
+- Scaffolded Next.js App Router modular monolith + Vitest.
+- Application seam: `getWatchlistHome` / `getInstrumentResearch` with fakeable `AuthSession` and `PersonalSurfaceStore`.
+- Clerk: middleware protects `/dashboard(*)`; sign-in/sign-up routes + landing CTAs; `UserButton` for sign-out.
+- Personal surface isolation uses in-memory store keyed by `retailTraderId` (app-layer multi-tenant baseline). Durable Supabase JWT/RLS for Watchlists is issue 02 (issue 01 only required isolation “as far as this behavior requires”).
+- Tests: `src/modules/dashboard/pre-trade-research-surface.test.ts` (5 cases).
