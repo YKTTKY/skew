@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Unauthenticated visitors cannot access Watchlist or Instrument research surfaces
 - [x] Retail Trader can sign up / sign in / sign out
@@ -21,3 +21,7 @@
 - Clerk: middleware protects `/dashboard(*)`; sign-in/sign-up routes + landing CTAs; `UserButton` for sign-out.
 - Personal surface isolation uses in-memory store keyed by `retailTraderId` (app-layer multi-tenant baseline). Durable Supabase JWT/RLS for Watchlists is issue 02 (issue 01 only required isolation “as far as this behavior requires”).
 - Tests: `src/modules/dashboard/pre-trade-research-surface.test.ts` (5 cases).
+
+### Human verification (2026-07-30)
+
+Verified against the issue 01 smoke checklist with real Clerk keys in `.env.local`: landing sign-up/in, unauthenticated gate on `/dashboard` and Instrument routes, authenticated empty Watchlist home, Instrument empty shell, and sign-out. No issues found — works as expected. **Done.**
