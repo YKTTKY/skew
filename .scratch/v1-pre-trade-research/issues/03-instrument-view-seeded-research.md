@@ -4,15 +4,25 @@
 
 **Blocked by:** 01 — Authenticated Dashboard shell
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Authenticated Retail Trader can open an Instrument View for a known Instrument by ticker
-- [ ] Stories outside the Research Window (~90 days) do not appear as current research
-- [ ] Story × Instrument rollups and Article × Instrument breakdowns are both visible
-- [ ] Bias and Sentiment are independent; Rationales are shown for scores
-- [ ] Deduped Articles can show multiple Source attributions
-- [ ] Multi-Instrument Stories can show different scores per Instrument
-- [ ] Unlinked Articles never appear on the Instrument View
-- [ ] Empty and error states are clear and recoverable
-- [ ] UI copy contains no trade recommendations or soft advice
-- [ ] Automated tests assert Instrument View behavior at the primary seam (seeded data OK)
+- [x] Authenticated Retail Trader can open an Instrument View for a known Instrument by ticker
+- [x] Stories outside the Research Window (~90 days) do not appear as current research
+- [x] Story × Instrument rollups and Article × Instrument breakdowns are both visible
+- [x] Bias and Sentiment are independent; Rationales are shown for scores
+- [x] Deduped Articles can show multiple Source attributions
+- [x] Multi-Instrument Stories can show different scores per Instrument
+- [x] Unlinked Articles never appear on the Instrument View
+- [x] Empty and error states are clear and recoverable
+- [x] UI copy contains no trade recommendations or soft advice
+- [x] Automated tests assert Instrument View behavior at the primary seam (seeded data OK)
+
+## Comments
+
+### Implementation notes (agent)
+
+- Extended Pre-Trade Research surface: `getInstrumentResearch` now takes catalog + `ResearchSurfaceStore`, returns Stories in the ~90-day Research Window or clear `unknown_instrument` / `error` / empty states.
+- New port `ResearchSurfaceStore` (`research-surface.ts`); in-memory adapter + relative seed corpus (AAPL product Story, multi-Instrument M&A Story, stale Story, unlinked noise).
+- Production composition root seeds timestamps from wall clock so the demo Research Window stays populated; tests pin `asOf` + `buildSeedResearchStories(asOf)`.
+- Instrument View UI: Story cards with Bias/Sentiment rollups, Article breakdowns, multi-Source attributions, freshness cues; unknown / error / empty recovery paths; coverage-only copy.
+- Tests: `pre-trade-research-surface.test.ts` (21 cases) — Instrument View seeded research + recommendation-language guard at the primary seam.
