@@ -1,10 +1,14 @@
 import type { PipelineArticle, PipelineBatch, PipelineStory } from "@/modules/pipeline/types";
 
-/** Cosine similarity threshold for thin Story clustering. */
-const SIMILARITY_THRESHOLD = 0.92;
+/**
+ * Cosine similarity threshold for Story clustering.
+ * Embeddings are the primary signal (ADR / product: related coverage, not
+ * only near-duplicates — syndication already collapsed at ingest).
+ */
+const SIMILARITY_THRESHOLD = 0.68;
 
 /**
- * Minimal clustering: group Articles with highly similar embeddings into Stories.
+ * Cluster related Articles into Stories via embedding similarity.
  * Unlinked Articles still get Stories in the batch but never publish to trader surfaces.
  */
 export function clusterArticles(batch: PipelineBatch): PipelineBatch {
@@ -12,20 +16,22 @@ export function clusterArticles(batch: PipelineBatch): PipelineBatch {
 
   for (const article of batch.articles) {
     let placed = false;
+    let bestCluster: PipelineArticle[] | null = null;
+    let bestSimilarity = SIMILARITY_THRESHOLD;
+
     for (const cluster of clusters) {
-      const seed = cluster[0]!;
-      if (
-        article.embedding &&
-        seed.embedding &&
-        cosineSimilarity(article.embedding, seed.embedding) >=
-          SIMILARITY_THRESHOLD
-      ) {
-        cluster.push(article);
+      // Best match to any member keeps multi-Article Stories coherent as they grow.
+      const similarity = maxSimilarityToCluster(article, cluster);
+      if (similarity >= bestSimilarity) {
+        bestSimilarity = similarity;
+        bestCluster = cluster;
         placed = true;
-        break;
       }
     }
-    if (!placed) {
+
+    if (placed && bestCluster) {
+      bestCluster.push(article);
+    } else {
       clusters.push([article]);
     }
   }
@@ -46,6 +52,26 @@ export function clusterArticles(batch: PipelineBatch): PipelineBatch {
   });
 
   return { ...batch, stories };
+}
+
+function maxSimilarityToCluster(
+  article: PipelineArticle,
+  cluster: PipelineArticle[],
+): number {
+  if (!article.embedding) {
+    return 0;
+  }
+  let best = 0;
+  for (const member of cluster) {
+    if (!member.embedding) {
+      continue;
+    }
+    const sim = cosineSimilarity(article.embedding, member.embedding);
+    if (sim > best) {
+      best = sim;
+    }
+  }
+  return best;
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {

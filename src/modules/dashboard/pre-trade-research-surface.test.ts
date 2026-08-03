@@ -973,6 +973,13 @@ describe("Pre-Trade Research surface — thin pipeline fixture to scores", () =>
           sentiment: "calm",
           sentimentRationale: EXPECTED_AAPL_SERVICES_SENTIMENT_RATIONALE,
         },
+        // Related multi-Article Story member (same event; rollup stays bullish/calm).
+        "Services mix lifts Apple as hardware stays steady|AAPL": {
+          bias: "bullish",
+          biasRationale: EXPECTED_AAPL_SERVICES_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_AAPL_SERVICES_SENTIMENT_RATIONALE,
+        },
         "Suppliers note steady component orders for phones|AAPL": {
           bias: "bullish",
           biasRationale:
@@ -1256,6 +1263,446 @@ describe("Pre-Trade Research surface — thin pipeline fixture to scores", () =>
     expect(copySnippets.length).toBeGreaterThan(0);
     for (const text of copySnippets) {
       expect(text).not.toMatch(RECOMMENDATION_LANGUAGE);
+    }
+  });
+});
+
+/**
+ * Seam: Retail Trader Pre-Trade Research surface after linking rules and
+ * multi-Article Story clustering (issue 07). Asserts trader-visible outcomes —
+ * not alias tables, similarity thresholds, or queue internals.
+ */
+describe("Pre-Trade Research surface — linking rules and Story clustering", () => {
+  const session: RetailTraderSession = { retailTraderId: "trader_alice" };
+
+  const EXPECTED_AAPL_SERVICES_BIAS_RATIONALE =
+    "Coverage frames services growth and recurring revenue as constructive for Apple.";
+  const EXPECTED_AAPL_SERVICES_SENTIMENT_RATIONALE =
+    "Tone stays measured product and financial reporting rather than alarm.";
+  const EXPECTED_AAPL_DEVICE_BIAS_RATIONALE =
+    "Coverage frames the hardware refresh as constructive product momentum for Apple.";
+  const EXPECTED_AAPL_DEVICE_SENTIMENT_RATIONALE =
+    "Tone is measured product reporting without emotional intensifiers.";
+  const EXPECTED_AAPL_SERVICES_MIX_BIAS_RATIONALE =
+    "Secondary coverage also treats services mix as constructive for Apple.";
+  const EXPECTED_AAPL_SERVICES_MIX_SENTIMENT_RATIONALE =
+    "Tone remains calm operational commentary on services mix.";
+  const EXPECTED_SPY_MACRO_BIAS_RATIONALE =
+    "Market-wide coverage frames soft inflation as constructive for broad equity indexes.";
+  const EXPECTED_SPY_MACRO_SENTIMENT_RATIONALE =
+    "Tone is measured macro reporting rather than alarm.";
+  const EXPECTED_QQQ_MACRO_BIAS_RATIONALE =
+    "Broad session commentary is constructive for major growth indexes.";
+  const EXPECTED_QQQ_MACRO_SENTIMENT_RATIONALE =
+    "Macro tone stays calm and process-oriented.";
+  const EXPECTED_AAPL_MACRO_LEAD_BIAS_RATIONALE =
+    "For Apple, coverage stresses leadership in large-cap gains during a broad session.";
+  const EXPECTED_AAPL_MACRO_LEAD_SENTIMENT_RATIONALE =
+    "Tone around Apple remains calm product and tape commentary.";
+
+  function linkingHarness() {
+    const researchStore = new InMemoryResearchSurfaceStore([]);
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const queue = new InMemoryJobQueue();
+    const ai = new FakeAiPort({
+      scoresByTitleAndTicker: {
+        "Apple expands services revenue|AAPL": {
+          bias: "bullish",
+          biasRationale: EXPECTED_AAPL_SERVICES_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_AAPL_SERVICES_SENTIMENT_RATIONALE,
+        },
+        "Services mix lifts Apple as hardware stays steady|AAPL": {
+          bias: "bullish",
+          biasRationale: EXPECTED_AAPL_SERVICES_MIX_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_AAPL_SERVICES_MIX_SENTIMENT_RATIONALE,
+        },
+        "Apple unveils new device lineup for the holiday quarter|AAPL": {
+          bias: "bullish",
+          biasRationale: EXPECTED_AAPL_DEVICE_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_AAPL_DEVICE_SENTIMENT_RATIONALE,
+        },
+        "U.S. stocks climb as soft inflation lifts major indexes|SPY": {
+          bias: "bullish",
+          biasRationale: EXPECTED_SPY_MACRO_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_SPY_MACRO_SENTIMENT_RATIONALE,
+        },
+        "U.S. stocks climb as soft inflation lifts major indexes|QQQ": {
+          bias: "bullish",
+          biasRationale: EXPECTED_QQQ_MACRO_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_QQQ_MACRO_SENTIMENT_RATIONALE,
+        },
+        "Markets firm while Apple leads large-cap gains|SPY": {
+          bias: "bullish",
+          biasRationale: EXPECTED_SPY_MACRO_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_SPY_MACRO_SENTIMENT_RATIONALE,
+        },
+        "Markets firm while Apple leads large-cap gains|QQQ": {
+          bias: "bullish",
+          biasRationale: EXPECTED_QQQ_MACRO_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_QQQ_MACRO_SENTIMENT_RATIONALE,
+        },
+        "Markets firm while Apple leads large-cap gains|AAPL": {
+          bias: "bullish",
+          biasRationale: EXPECTED_AAPL_MACRO_LEAD_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_AAPL_MACRO_LEAD_SENTIMENT_RATIONALE,
+        },
+        "Antitrust officials examine tech partnership terms|AAPL": {
+          bias: "bearish",
+          biasRationale:
+            "For Apple, coverage stresses scrutiny risk and possible deal friction.",
+          sentiment: "alarmist",
+          sentimentRationale:
+            "Language around enforcement and delays is elevated for Apple.",
+        },
+        "Antitrust officials examine tech partnership terms|MSFT": {
+          bias: "neutral",
+          biasRationale:
+            "For Microsoft, pieces treat the talks as procedural with limited franchise impact.",
+          sentiment: "calm",
+          sentimentRationale:
+            "Microsoft-framed passages stay measured and process-oriented.",
+        },
+        "Suppliers note steady component orders for phones|AAPL": {
+          bias: "bullish",
+          biasRationale:
+            "Supplier order commentary implies steady unit expectations for Apple.",
+          sentiment: "neutral",
+          sentimentRationale:
+            "Operational supply-chain language without strong emotional framing.",
+        },
+        "Cloud demand outlook stays mixed into next quarter|MSFT": {
+          bias: "neutral",
+          biasRationale:
+            "Pieces treat cloud demand commentary as balanced for Microsoft with limited franchise tilt.",
+          sentiment: "calm",
+          sentimentRationale:
+            "Language around Microsoft cloud is process-oriented and calm.",
+        },
+      },
+    });
+
+    registerPipelineWorkers({
+      queue,
+      ai,
+      catalog,
+      researchWriter: researchStore,
+      batchStore: new InMemoryPipelineBatchStore(),
+    });
+
+    return { researchStore, catalog, queue };
+  }
+
+  async function runFixturePipeline(
+    queue: InMemoryJobQueue,
+    asOf: Date = AS_OF,
+  ): Promise<void> {
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(asOf));
+    await queue.drain();
+  }
+
+  it("links Articles via NLP entity names when explicit tickers are missing", async () => {
+    const { researchStore, queue } = linkingHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(aapl.status).toBe("ok");
+    if (aapl.status !== "ok") return;
+
+    expect(
+      aapl.stories.some((s) =>
+        s.articles.some(
+          (a) =>
+            a.title ===
+            "Apple unveils new device lineup for the holiday quarter",
+        ),
+      ),
+    ).toBe(true);
+
+    const device = aapl.stories
+      .flatMap((s) => s.articles)
+      .find(
+        (a) =>
+          a.title === "Apple unveils new device lineup for the holiday quarter",
+      );
+    expect(device?.bias.label).toBe("bullish");
+    expect(device?.bias.rationale).toBe(EXPECTED_AAPL_DEVICE_BIAS_RATIONALE);
+  });
+
+  it("attaches market-wide Articles to major index ETFs, not every equity", async () => {
+    const { researchStore, queue } = linkingHarness();
+
+    await runFixturePipeline(queue);
+
+    const spy = await getInstrumentResearch(
+      session,
+      "SPY",
+      emptyResearchDeps({ researchStore }),
+    );
+    const qqq = await getInstrumentResearch(
+      session,
+      "QQQ",
+      emptyResearchDeps({ researchStore }),
+    );
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const msft = await getInstrumentResearch(
+      session,
+      "MSFT",
+      emptyResearchDeps({ researchStore }),
+    );
+    const nvda = await getInstrumentResearch(
+      session,
+      "NVDA",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(spy.status).toBe("ok");
+    expect(qqq.status).toBe("ok");
+    expect(aapl.status).toBe("ok");
+    expect(msft.status).toBe("ok");
+    expect(nvda.status).toBe("ok");
+    if (
+      spy.status !== "ok" ||
+      qqq.status !== "ok" ||
+      aapl.status !== "ok" ||
+      msft.status !== "ok" ||
+      nvda.status !== "ok"
+    ) {
+      return;
+    }
+
+    const macroTitle =
+      "U.S. stocks climb as soft inflation lifts major indexes";
+
+    expect(
+      spy.stories.some((s) => s.articles.some((a) => a.title === macroTitle)),
+    ).toBe(true);
+    expect(
+      qqq.stories.some((s) => s.articles.some((a) => a.title === macroTitle)),
+    ).toBe(true);
+
+    // Market-wide piece must not auto-link single-name equities.
+    expect(
+      aapl.stories.some((s) => s.articles.some((a) => a.title === macroTitle)),
+    ).toBe(false);
+    expect(
+      msft.stories.some((s) => s.articles.some((a) => a.title === macroTitle)),
+    ).toBe(false);
+    expect(
+      nvda.stories.some((s) => s.articles.some((a) => a.title === macroTitle)),
+    ).toBe(false);
+
+    const spyMacro = spy.stories
+      .flatMap((s) => s.articles)
+      .find((a) => a.title === macroTitle);
+    expect(spyMacro?.bias.label).toBe("bullish");
+    expect(spyMacro?.bias.rationale).toBe(EXPECTED_SPY_MACRO_BIAS_RATIONALE);
+  });
+
+  it("still links explicitly named Instruments on macro pieces", async () => {
+    const { researchStore, queue } = linkingHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const spy = await getInstrumentResearch(
+      session,
+      "SPY",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(aapl.status).toBe("ok");
+    expect(spy.status).toBe("ok");
+    if (aapl.status !== "ok" || spy.status !== "ok") return;
+
+    const title = "Markets firm while Apple leads large-cap gains";
+
+    expect(
+      aapl.stories.some((s) => s.articles.some((a) => a.title === title)),
+    ).toBe(true);
+    expect(
+      spy.stories.some((s) => s.articles.some((a) => a.title === title)),
+    ).toBe(true);
+
+    const aaplArticle = aapl.stories
+      .flatMap((s) => s.articles)
+      .find((a) => a.title === title);
+    expect(aaplArticle?.bias.label).toBe("bullish");
+    expect(aaplArticle?.bias.rationale).toBe(
+      EXPECTED_AAPL_MACRO_LEAD_BIAS_RATIONALE,
+    );
+  });
+
+  it("does not flood equities from sector-wide coverage without named Instruments", async () => {
+    const { researchStore, queue } = linkingHarness();
+
+    await runFixturePipeline(queue);
+
+    const sectorTitle =
+      "Technology stocks rally on AI optimism across the sector";
+
+    for (const ticker of ["AAPL", "MSFT", "NVDA", "SPY", "QQQ"] as const) {
+      const view = await getInstrumentResearch(
+        session,
+        ticker,
+        emptyResearchDeps({ researchStore }),
+      );
+      expect(view.status).toBe("ok");
+      if (view.status !== "ok") return;
+      expect(
+        view.stories.some((s) =>
+          s.articles.some((a) => a.title === sectorTitle),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("clusters related Articles into a multi-Article Story with consistent rollups", async () => {
+    const { researchStore, queue } = linkingHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(aapl.status).toBe("ok");
+    if (aapl.status !== "ok") return;
+
+    const servicesStory = aapl.stories.find(
+      (s) =>
+        s.articles.some((a) => a.title === "Apple expands services revenue") &&
+        s.articles.some(
+          (a) => a.title === "Services mix lifts Apple as hardware stays steady",
+        ),
+    );
+
+    expect(servicesStory).toBeDefined();
+    expect(servicesStory?.articles.length).toBeGreaterThanOrEqual(2);
+
+    const primary = servicesStory?.articles.find(
+      (a) => a.title === "Apple expands services revenue",
+    );
+    const secondary = servicesStory?.articles.find(
+      (a) => a.title === "Services mix lifts Apple as hardware stays steady",
+    );
+
+    expect(primary?.bias.label).toBe("bullish");
+    expect(primary?.bias.rationale).toBe(EXPECTED_AAPL_SERVICES_BIAS_RATIONALE);
+    expect(secondary?.bias.label).toBe("bullish");
+    expect(secondary?.bias.rationale).toBe(
+      EXPECTED_AAPL_SERVICES_MIX_BIAS_RATIONALE,
+    );
+
+    // Story × Instrument rollup stays consistent with underlying Article scores.
+    expect(servicesStory?.bias.label).toBe("bullish");
+    expect(servicesStory?.sentiment.label).toBe("calm");
+    expect([
+      EXPECTED_AAPL_SERVICES_BIAS_RATIONALE,
+      EXPECTED_AAPL_SERVICES_MIX_BIAS_RATIONALE,
+    ]).toContain(servicesStory?.bias.rationale);
+  });
+
+  it("surfaces the same multi-Instrument Story on each related Instrument View", async () => {
+    const { researchStore, queue } = linkingHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const msft = await getInstrumentResearch(
+      session,
+      "MSFT",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(aapl.status).toBe("ok");
+    expect(msft.status).toBe("ok");
+    if (aapl.status !== "ok" || msft.status !== "ok") return;
+
+    const title = "Antitrust officials examine tech partnership terms";
+    const aaplStory = aapl.stories.find((s) =>
+      s.articles.some((a) => a.title === title),
+    );
+    const msftStory = msft.stories.find((s) =>
+      s.articles.some((a) => a.title === title),
+    );
+
+    expect(aaplStory?.id).toBe(msftStory?.id);
+    expect(aaplStory?.bias.label).toBe("bearish");
+    expect(msftStory?.bias.label).toBe("neutral");
+  });
+
+  it("keeps unlinked Articles off Dashboard, Watchlist home, and Instrument View", async () => {
+    const { researchStore, queue, catalog } = linkingHarness();
+    const personal = new InMemoryPersonalSurfaceStore();
+
+    await runFixturePipeline(queue);
+    await addInstrumentToWatchlist(session, personal, catalog, "AAPL");
+    await addInstrumentToWatchlist(session, personal, catalog, "SPY");
+
+    const forbiddenTitles = [
+      "Column without any Instrument markers or metadata",
+      "Weekend weather may slow travel plans",
+      "Technology stocks rally on AI optimism across the sector",
+    ];
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const spy = await getInstrumentResearch(
+      session,
+      "SPY",
+      emptyResearchDeps({ researchStore }),
+    );
+    const home = await getWatchlistHome(
+      session,
+      homeDeps(personal, researchStore),
+    );
+
+    expect(aapl.status).toBe("ok");
+    expect(spy.status).toBe("ok");
+    expect(home.status).toBe("ok");
+    if (aapl.status !== "ok" || spy.status !== "ok" || home.status !== "ok") {
+      return;
+    }
+
+    const instrumentTitles = [...aapl.stories, ...spy.stories].flatMap((s) =>
+      s.articles.map((a) => a.title),
+    );
+    const homeTitles = home.stories.map((s) => s.title);
+
+    for (const title of forbiddenTitles) {
+      expect(instrumentTitles).not.toContain(title);
+      expect(homeTitles).not.toContain(title);
     }
   });
 });

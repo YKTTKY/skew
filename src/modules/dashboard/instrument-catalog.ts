@@ -15,4 +15,6 @@ export type InstrumentCatalog = {
     query: string,
     limit?: number,
   ): Promise<InstrumentRecord[]>;
+  /** Full known universe — used for NLP entity name resolution at link time. */
+  listAll(): Promise<InstrumentRecord[]>;
 };

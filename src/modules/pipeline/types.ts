@@ -28,7 +28,7 @@ export type PipelineArticle = {
   externalId?: string;
   metadataTickers: string[];
   embedding?: number[];
-  /** Linked Instruments after explicit ticker/cashtag/metadata linking. */
+  /** Linked Instruments after explicit, NLP entity, and macro linking. */
   instrumentLinks: string[];
   /** Article × Instrument scores after the score stage. */
   scoresByTicker: Record<string, ArticleInstrumentScore>;

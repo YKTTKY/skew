@@ -7,9 +7,10 @@ function daysBefore(asOf: Date, days: number): string {
 }
 
 /**
- * Curated fixture Source feed for the thin pipeline path.
- * Includes: cashtag linking, bare ticker linking, metadata-only linking,
- * near-identical syndication (two Sources), multi-Instrument Article,
+ * Curated fixture Source feed for the pipeline path.
+ * Includes: cashtag / bare ticker / metadata linking, NLP entity linking,
+ * market-wide macro → major index ETFs, sector-wide no-flood, multi-Article
+ * Story clustering, near-identical syndication, multi-Instrument Articles,
  * and unlinked noise that must never reach trader-facing surfaces.
  */
 export function buildPipelineFixtureFeed(
@@ -30,6 +31,14 @@ export function buildPipelineFixtureFeed(
       body: "Cupertino reported stronger recurring services lines. $AAPL shares were little changed in after-hours commentary as analysts parsed the mix.",
       publishedAt: daysBefore(asOf, 3),
       externalId: "wire-apple-services-2026",
+    },
+    // Related (not syndicated) piece — same services-revenue event; clusters via embeddings.
+    {
+      sourceName: "Bloomberg",
+      title: "Services mix lifts Apple as hardware stays steady",
+      body: "Apple expands services revenue as recurring services lines outpaced hardware in Cupertino commentary. After-hours notes parsed the services mix; $AAPL was little changed while analysts framed services growth as constructive.",
+      publishedAt: daysBefore(asOf, 2),
+      externalId: "bbg-apple-services-mix",
     },
     {
       sourceName: "Bloomberg",
@@ -54,6 +63,38 @@ export function buildPipelineFixtureFeed(
       externalId: "ap-cloud-outlook",
       // Explicit metadata-only link (no ticker/cashtag in body).
       metadataTickers: ["MSFT"],
+    },
+    // NLP entity linking only — company name, no ticker/cashtag/metadata.
+    {
+      sourceName: "Reuters",
+      title: "Apple unveils new device lineup for the holiday quarter",
+      body: "Apple said its latest hardware refresh targets holiday demand. Executives framed the product cycle without citing any exchange ticker symbols.",
+      publishedAt: daysBefore(asOf, 6),
+      externalId: "reuters-apple-device-lineup",
+    },
+    // Market-wide macro — attach major index ETFs only, not every equity.
+    {
+      sourceName: "Bloomberg",
+      title: "U.S. stocks climb as soft inflation lifts major indexes",
+      body: "The stock market advanced broadly as investors digested cooler inflation prints. Wall Street treated the session as a market-wide risk-on move across major indexes rather than a single-name story.",
+      publishedAt: daysBefore(asOf, 1),
+      externalId: "bbg-macro-soft-inflation",
+    },
+    // Macro + explicit Instrument — index ETFs plus named equity.
+    {
+      sourceName: "Financial Times",
+      title: "Markets firm while Apple leads large-cap gains",
+      body: "U.S. stocks edged higher in a broad market-wide session on Wall Street. Apple shares led large-cap gains after product commentary, with $AAPL named in the tape summary.",
+      publishedAt: daysBefore(asOf, 1),
+      externalId: "ft-macro-apple-leads",
+    },
+    // Sector-wide piece — must not auto-link every tech equity or flood Watchlists.
+    {
+      sourceName: "Sector Wire",
+      title: "Technology stocks rally on AI optimism across the sector",
+      body: "Technology stocks moved higher as traders rotated into the sector on AI optimism. Coverage stayed sector-wide without naming individual companies or tickers.",
+      publishedAt: daysBefore(asOf, 2),
+      externalId: "sector-tech-ai-rally",
     },
     {
       sourceName: "Generic Wire",

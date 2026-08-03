@@ -4,12 +4,21 @@
 
 **Blocked by:** 06 — Thin pipeline: fixture Source → scored Instrument View
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] NLP entity linking attaches Articles that lack explicit tickers/cashtags when entities resolve to Instruments
-- [ ] Market-wide Articles may link to major index ETFs when clearly about the market as a whole; they do not auto-link every sector equity
-- [ ] Explicitly named Instruments on macro pieces still link correctly
-- [ ] Related Articles cluster into a shared Story visible on related Instrument Views
-- [ ] Multi-Article Stories show per-Article score breakdown and consistent Story × Instrument rollups
-- [ ] Unlinked Articles remain absent from Dashboard, Watchlist home, and Instrument View
-- [ ] Automated tests assert linking and clustering outcomes at the primary seam (fake AI/embeddings OK)
+- [x] NLP entity linking attaches Articles that lack explicit tickers/cashtags when entities resolve to Instruments
+- [x] Market-wide Articles may link to major index ETFs when clearly about the market as a whole; they do not auto-link every sector equity
+- [x] Explicitly named Instruments on macro pieces still link correctly
+- [x] Related Articles cluster into a shared Story visible on related Instrument Views
+- [x] Multi-Article Stories show per-Article score breakdown and consistent Story × Instrument rollups
+- [x] Unlinked Articles remain absent from Dashboard, Watchlist home, and Instrument View
+- [x] Automated tests assert linking and clustering outcomes at the primary seam (fake AI/embeddings OK)
+
+## Comments
+
+### Implementation notes (agent)
+
+- Link stage: explicit tickers/cashtags/metadata + catalog name/alias entity resolution (v1 NLP) + market-wide → SPY/QQQ by default (named indexes can add peers). Sector-wide pieces do not flood equities.
+- `InstrumentCatalog.listAll()` supports entity alias build from the known universe.
+- Clustering: embeddings-primary within each pipeline batch; fixture includes a related services-revenue pair that forms a multi-Article Story with consistent rollups.
+- Primary-seam tests in `pre-trade-research-surface.test.ts` (linking rules and Story clustering describe block).

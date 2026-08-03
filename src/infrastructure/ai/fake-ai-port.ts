@@ -52,22 +52,45 @@ export class FakeAiPort implements AiPort {
 }
 
 /**
- * Deterministic bag-of-tokens embedding so near-identical titles cluster
- * and unrelated titles stay apart — enough for thin clustering tests.
+ * Deterministic bag-of-tokens embedding so related coverage clusters and
+ * unrelated titles stay apart. Title tokens are weighted higher so Story
+ * clustering (embeddings-primary) groups same-event pieces without needing
+ * near-duplicate bodies.
  */
 function defaultEmbeddingFromText(text: string): number[] {
-  const tokens = normalizeTokens(text);
-  const dims = 32;
+  const newline = text.indexOf("\n");
+  const title = newline >= 0 ? text.slice(0, newline) : text;
+  const body = newline >= 0 ? text.slice(newline + 1) : "";
+
+  const dims = 64;
   const vec = new Array<number>(dims).fill(0);
-  for (const token of tokens) {
-    let h = 0;
-    for (let i = 0; i < token.length; i++) {
-      h = (h * 31 + token.charCodeAt(i)) >>> 0;
-    }
-    vec[h % dims] += 1;
-  }
+  accumulateTokens(vec, normalizeTokens(title), 3);
+  accumulateTokens(vec, normalizeTokens(body), 1);
+
   const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
   return vec.map((v) => v / norm);
+}
+
+function accumulateTokens(
+  vec: number[],
+  tokens: string[],
+  weight: number,
+): void {
+  const dims = vec.length;
+  for (const token of tokens) {
+    let h = 2166136261;
+    for (let i = 0; i < token.length; i++) {
+      h ^= token.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    vec[(h >>> 0) % dims] += weight;
+    // Second hash reduces collisions for short bags of tokens.
+    let h2 = 0;
+    for (let i = 0; i < token.length; i++) {
+      h2 = (h2 * 33 + token.charCodeAt(i)) >>> 0;
+    }
+    vec[h2 % dims] += weight * 0.5;
+  }
 }
 
 function normalizeTokens(text: string): string[] {

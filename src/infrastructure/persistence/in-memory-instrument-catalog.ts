@@ -45,4 +45,10 @@ export class InMemoryInstrumentCatalog implements InstrumentCatalog {
     }
     return matches;
   }
+
+  async listAll(): Promise<InstrumentRecord[]> {
+    return [...this.byTicker.values()].sort((a, b) =>
+      a.ticker.localeCompare(b.ticker),
+    );
+  }
 }
