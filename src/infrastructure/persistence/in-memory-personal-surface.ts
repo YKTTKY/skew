@@ -12,6 +12,30 @@ export class InMemoryPersonalSurfaceStore implements PersonalSurfaceStore {
     return [...(this.watchlists.get(retailTraderId) ?? [])];
   }
 
+  async addWatchlistTicker(
+    retailTraderId: RetailTraderId,
+    ticker: string,
+  ): Promise<void> {
+    const normalized = ticker.trim().toUpperCase();
+    const current = this.watchlists.get(retailTraderId) ?? [];
+    if (current.includes(normalized)) {
+      return;
+    }
+    this.watchlists.set(retailTraderId, [...current, normalized]);
+  }
+
+  async removeWatchlistTicker(
+    retailTraderId: RetailTraderId,
+    ticker: string,
+  ): Promise<void> {
+    const normalized = ticker.trim().toUpperCase();
+    const current = this.watchlists.get(retailTraderId) ?? [];
+    this.watchlists.set(
+      retailTraderId,
+      current.filter((t) => t !== normalized),
+    );
+  }
+
   /** Test/dev seeder — not part of the trader-facing product API. */
   seedWatchlist(retailTraderId: RetailTraderId, tickers: string[]): void {
     this.watchlists.set(

@@ -1,11 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { WatchlistManager } from "@/app/dashboard/watchlist-manager";
 import { getAuthSession } from "@/infrastructure/auth/get-auth-session";
 import { getPersonalSurfaceStore } from "@/infrastructure/persistence/personal-surface-store";
 import { getWatchlistHome } from "@/modules/dashboard/watchlist-home";
 
 /**
- * Watchlist home — authenticated empty state when the Retail Trader has no Instruments.
+ * Watchlist home — current set, empty state, and Instrument search/add/remove.
  */
 export default async function DashboardHomePage() {
   const session = await getAuthSession();
@@ -24,38 +24,11 @@ export default async function DashboardHomePage() {
         Pre-Trade Research home for Instruments you follow.
       </p>
 
-      {home.empty ? (
-        <section
-          className="mt-10 rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-center"
-          data-testid="watchlist-empty-state"
-        >
-          <p className="text-base text-zinc-700">{home.emptyStateMessage}</p>
-          <p className="mt-3 text-sm text-zinc-500">
-            You can open an Instrument View by ticker once research surfaces are
-            available — for example{" "}
-            <Link
-              href="/dashboard/instruments/SPY"
-              className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-            >
-              SPY
-            </Link>
-            .
-          </p>
-        </section>
-      ) : (
-        <ul className="mt-8 divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white">
-          {home.instruments.map((instrument) => (
-            <li key={instrument.ticker}>
-              <Link
-                href={`/dashboard/instruments/${instrument.ticker}`}
-                className="block px-4 py-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
-              >
-                {instrument.ticker}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <WatchlistManager
+        instruments={home.instruments}
+        empty={home.empty}
+        emptyStateMessage={home.emptyStateMessage}
+      />
     </main>
   );
 }

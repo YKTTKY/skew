@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryInstrumentCatalog } from "@/infrastructure/persistence/in-memory-instrument-catalog";
 import { InMemoryPersonalSurfaceStore } from "@/infrastructure/persistence/in-memory-personal-surface";
 import { getInstrumentResearch } from "@/modules/dashboard/instrument-research";
+import {
+  addInstrumentToWatchlist,
+  removeInstrumentFromWatchlist,
+} from "@/modules/dashboard/watchlist-mutations";
+import { searchInstruments } from "@/modules/dashboard/search-instruments";
 import { getWatchlistHome } from "@/modules/dashboard/watchlist-home";
 import type { RetailTraderSession } from "@/modules/auth/types";
+
+const SEED_INSTRUMENTS = [
+  { ticker: "AAPL", name: "Apple Inc.", kind: "equity" as const },
+  { ticker: "MSFT", name: "Microsoft Corporation", kind: "equity" as const },
+  { ticker: "NVDA", name: "NVIDIA Corporation", kind: "equity" as const },
+  { ticker: "SPY", name: "SPDR S&P 500 ETF Trust", kind: "etf" as const },
+  { ticker: "QQQ", name: "Invesco QQQ Trust", kind: "etf" as const },
+];
 
 /** Independent expected copy — not imported from production modules (avoids tautological tests). */
 const EXPECTED_WATCHLIST_EMPTY_MESSAGE =
@@ -90,5 +104,147 @@ describe("Pre-Trade Research surface — identity isolation", () => {
       expect(aliceHome.instruments.map((i) => i.ticker)).not.toContain("MSFT");
       expect(aliceHome.instruments.map((i) => i.ticker)).not.toContain("NVDA");
     }
+  });
+});
+
+/**
+ * Seam: Retail Trader Pre-Trade Research surface (Watchlist mutations).
+ * Asserts add/remove and isolation via application APIs — not store internals.
+ */
+describe("Pre-Trade Research surface — Watchlist management", () => {
+  it("lets a Retail Trader add a known Instrument and see it on home", async () => {
+    const store = new InMemoryPersonalSurfaceStore();
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const session: RetailTraderSession = { retailTraderId: "trader_alice" };
+
+    const addResult = await addInstrumentToWatchlist(
+      session,
+      store,
+      catalog,
+      "aapl",
+    );
+
+    expect(addResult).toEqual({
+      status: "ok",
+      instruments: [{ ticker: "AAPL" }],
+    });
+
+    const home = await getWatchlistHome(session, store);
+    expect(home).toEqual({
+      status: "ok",
+      empty: false,
+      instruments: [{ ticker: "AAPL" }],
+      emptyStateMessage: "",
+    });
+  });
+
+  it("lets a Retail Trader remove an Instrument and return to empty home", async () => {
+    const store = new InMemoryPersonalSurfaceStore();
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const session: RetailTraderSession = { retailTraderId: "trader_alice" };
+
+    await addInstrumentToWatchlist(session, store, catalog, "SPY");
+    await addInstrumentToWatchlist(session, store, catalog, "QQQ");
+
+    const removeResult = await removeInstrumentFromWatchlist(
+      session,
+      store,
+      "spy",
+    );
+
+    expect(removeResult).toEqual({
+      status: "ok",
+      instruments: [{ ticker: "QQQ" }],
+    });
+
+    await removeInstrumentFromWatchlist(session, store, "QQQ");
+
+    const home = await getWatchlistHome(session, store);
+    expect(home).toEqual({
+      status: "ok",
+      empty: true,
+      instruments: [],
+      emptyStateMessage: EXPECTED_WATCHLIST_EMPTY_MESSAGE,
+    });
+  });
+
+  it("rejects adding an unknown ticker", async () => {
+    const store = new InMemoryPersonalSurfaceStore();
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const session: RetailTraderSession = { retailTraderId: "trader_alice" };
+
+    const result = await addInstrumentToWatchlist(
+      session,
+      store,
+      catalog,
+      "NOTREAL",
+    );
+
+    expect(result).toEqual({ status: "unknown_instrument" });
+
+    const home = await getWatchlistHome(session, store);
+    expect(home).toMatchObject({ status: "ok", empty: true, instruments: [] });
+  });
+
+  it("denies unauthenticated Watchlist mutations and Instrument search", async () => {
+    const store = new InMemoryPersonalSurfaceStore();
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+
+    expect(
+      await addInstrumentToWatchlist(null, store, catalog, "AAPL"),
+    ).toEqual({ status: "unauthenticated" });
+    expect(await removeInstrumentFromWatchlist(null, store, "AAPL")).toEqual({
+      status: "unauthenticated",
+    });
+    expect(await searchInstruments(null, catalog, "AA")).toEqual({
+      status: "unauthenticated",
+    });
+  });
+
+  it("lets a Retail Trader search US equity and ETF Instruments by ticker", async () => {
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const session: RetailTraderSession = { retailTraderId: "trader_alice" };
+
+    const result = await searchInstruments(session, catalog, "q");
+
+    expect(result).toEqual({
+      status: "ok",
+      results: [
+        {
+          ticker: "QQQ",
+          name: "Invesco QQQ Trust",
+          kind: "etf",
+        },
+      ],
+    });
+  });
+
+  it("does not let one Retail Trader mutate another’s Watchlist", async () => {
+    const store = new InMemoryPersonalSurfaceStore();
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const alice: RetailTraderSession = { retailTraderId: "trader_alice" };
+    const bob: RetailTraderSession = { retailTraderId: "trader_bob" };
+
+    await addInstrumentToWatchlist(bob, store, catalog, "MSFT");
+    await addInstrumentToWatchlist(bob, store, catalog, "NVDA");
+
+    await addInstrumentToWatchlist(alice, store, catalog, "AAPL");
+    await removeInstrumentFromWatchlist(alice, store, "MSFT");
+
+    const bobHome = await getWatchlistHome(bob, store);
+    const aliceHome = await getWatchlistHome(alice, store);
+
+    expect(bobHome).toEqual({
+      status: "ok",
+      empty: false,
+      instruments: [{ ticker: "MSFT" }, { ticker: "NVDA" }],
+      emptyStateMessage: "",
+    });
+    expect(aliceHome).toEqual({
+      status: "ok",
+      empty: false,
+      instruments: [{ ticker: "AAPL" }],
+      emptyStateMessage: "",
+    });
   });
 });

@@ -4,8 +4,9 @@ import { InMemoryPersonalSurfaceStore } from "@/infrastructure/persistence/in-me
 /**
  * Composition root for personal (Retail-Trader-scoped) Dashboard data.
  *
- * Issue 01: in-memory store keyed by retailTraderId (app-layer identity isolation).
- * Issue 02+ replaces this with Supabase Postgres + Clerk JWT RLS for durable Watchlists.
+ * In-memory store keyed by retailTraderId provides behavior-level multi-tenant
+ * isolation (RLS baseline). Durable Supabase Postgres + Clerk JWT RLS can replace
+ * this adapter without changing Dashboard application APIs.
  */
 const store = new InMemoryPersonalSurfaceStore();
 
