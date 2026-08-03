@@ -10,6 +10,11 @@ import {
   buildSeedResearchStories,
 } from "@/infrastructure/persistence/seed-research";
 import {
+  FailingPriceContextProvider,
+  FakePriceContextProvider,
+} from "@/infrastructure/price/fake-price-context-provider";
+import { buildSeedPriceContextQuotes } from "@/infrastructure/price/seed-price-context";
+import {
   getInstrumentResearch,
   type InstrumentResearchDeps,
 } from "@/modules/dashboard/instrument-research";
@@ -24,6 +29,7 @@ import {
 } from "@/modules/dashboard/watchlist-home";
 import type { RetailTraderSession } from "@/modules/auth/types";
 import type { PersonalSurfaceStore } from "@/modules/dashboard/personal-surface";
+import type { PriceContextProvider } from "@/modules/dashboard/price-context";
 import type { ResearchSurfaceStore } from "@/modules/dashboard/research-surface";
 
 const SEED_INSTRUMENTS = [
@@ -64,6 +70,15 @@ function seededResearchStore(): ResearchSurfaceStore {
   return new InMemoryResearchSurfaceStore(buildSeedResearchStories(AS_OF));
 }
 
+/** Default fake has no quotes — Price Context unavailable unless a test injects seed. */
+function unavailablePriceProvider(): PriceContextProvider {
+  return new FakePriceContextProvider({});
+}
+
+function seededPriceProvider(): PriceContextProvider {
+  return new FakePriceContextProvider(buildSeedPriceContextQuotes(AS_OF));
+}
+
 function homeDeps(
   personalStore: PersonalSurfaceStore,
   researchStore: ResearchSurfaceStore = emptyResearchStore(),
@@ -75,11 +90,15 @@ function homeDeps(
   };
 }
 
-function emptyResearchDeps(): InstrumentResearchDeps {
+function emptyResearchDeps(
+  overrides?: Partial<InstrumentResearchDeps>,
+): InstrumentResearchDeps {
   return {
     catalog: new InMemoryInstrumentCatalog(SEED_INSTRUMENTS),
     researchStore: emptyResearchStore(),
+    priceProvider: unavailablePriceProvider(),
     asOf: AS_OF,
+    ...overrides,
   };
 }
 
@@ -89,6 +108,7 @@ function seededResearchDeps(
   return {
     catalog: new InMemoryInstrumentCatalog(SEED_INSTRUMENTS),
     researchStore: seededResearchStore(),
+    priceProvider: unavailablePriceProvider(),
     asOf: AS_OF,
     ...overrides,
   };
@@ -147,6 +167,7 @@ describe("Pre-Trade Research surface — authenticated empty home", () => {
       empty: true,
       stories: [],
       emptyStateMessage: EXPECTED_INSTRUMENT_EMPTY_MESSAGE,
+      priceContext: { status: "unavailable" },
     });
   });
 });
@@ -589,6 +610,126 @@ describe("Pre-Trade Research surface — Instrument View seeded research", () =>
     for (const text of copySnippets) {
       expect(text).not.toMatch(RECOMMENDATION_LANGUAGE);
     }
+  });
+});
+
+/**
+ * Seam: Retail Trader Pre-Trade Research surface (Price Context on Instrument View).
+ * Asserts last price + simple chart series via getInstrumentResearch with a fake
+ * price provider — not vendor SDKs or chart library internals. Price failures
+ * must never block Stories, scores, or Rationales.
+ */
+describe("Pre-Trade Research surface — Price Context on Instrument View", () => {
+  const session: RetailTraderSession = { retailTraderId: "trader_alice" };
+
+  it("shows last price suitable for orientation when quotes are available", async () => {
+    const result = await getInstrumentResearch(
+      session,
+      "AAPL",
+      seededResearchDeps({ priceProvider: seededPriceProvider() }),
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    expect(result.priceContext).toEqual({
+      status: "available",
+      lastPrice: 214.5,
+      currency: "USD",
+      asOf: AS_OF.toISOString(),
+      series: [
+        { at: "2026-07-28T12:00:00.000Z", price: 208.2 },
+        { at: "2026-07-29T12:00:00.000Z", price: 209.8 },
+        { at: "2026-07-30T12:00:00.000Z", price: 211.1 },
+        { at: "2026-07-31T12:00:00.000Z", price: 210.4 },
+        { at: "2026-08-01T12:00:00.000Z", price: 212.7 },
+        { at: "2026-08-02T12:00:00.000Z", price: 213.9 },
+        { at: "2026-08-03T12:00:00.000Z", price: 214.5 },
+      ],
+    });
+  });
+
+  it("includes a simple orientation chart series (not a TA terminal)", async () => {
+    const result = await getInstrumentResearch(
+      session,
+      "AAPL",
+      seededResearchDeps({ priceProvider: seededPriceProvider() }),
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.priceContext.status).toBe("available");
+    if (result.priceContext.status !== "available") return;
+
+    const { series, lastPrice } = result.priceContext;
+    // Lightweight path only — enough points to orient, not a full history workstation.
+    expect(series.length).toBeGreaterThanOrEqual(2);
+    expect(series.length).toBeLessThanOrEqual(14);
+    expect(series[series.length - 1]?.price).toBe(lastPrice);
+    // Chronological order for a simple chart.
+    for (let i = 1; i < series.length; i++) {
+      expect(Date.parse(series[i]!.at)).toBeGreaterThanOrEqual(
+        Date.parse(series[i - 1]!.at),
+      );
+    }
+  });
+
+  it("does not block Stories, scores, or Rationales when Price Context is unavailable", async () => {
+    const result = await getInstrumentResearch(
+      session,
+      "AAPL",
+      seededResearchDeps({ priceProvider: unavailablePriceProvider() }),
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    expect(result.priceContext).toEqual({ status: "unavailable" });
+    // Coverage still loads for Pre-Trade Research.
+    expect(result.empty).toBe(false);
+    expect(result.stories.map((s) => s.id)).toEqual([
+      "story-aapl-product",
+      "story-ma-aapl-msft",
+    ]);
+    const product = result.stories.find((s) => s.id === "story-aapl-product");
+    expect(product?.bias.label).toBe("bullish");
+    expect(product?.bias.rationale.length).toBeGreaterThan(0);
+    expect(product?.sentiment.rationale.length).toBeGreaterThan(0);
+    expect(product?.articles.length).toBeGreaterThan(0);
+  });
+
+  it("does not block coverage when the price provider throws", async () => {
+    const result = await getInstrumentResearch(
+      session,
+      "AAPL",
+      seededResearchDeps({
+        priceProvider: new FailingPriceContextProvider(),
+      }),
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    expect(result.priceContext).toEqual({ status: "unavailable" });
+    expect(result.stories.length).toBeGreaterThan(0);
+    expect(result.stories[0]?.bias.rationale.length).toBeGreaterThan(0);
+  });
+
+  it("still shows Price Context when the Instrument has no Stories yet", async () => {
+    const result = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ priceProvider: seededPriceProvider() }),
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    expect(result.empty).toBe(true);
+    expect(result.stories).toEqual([]);
+    expect(result.priceContext.status).toBe("available");
+    if (result.priceContext.status !== "available") return;
+    expect(result.priceContext.lastPrice).toBe(214.5);
   });
 });
 

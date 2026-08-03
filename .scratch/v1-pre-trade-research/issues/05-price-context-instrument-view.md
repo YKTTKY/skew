@@ -4,9 +4,19 @@
 
 **Blocked by:** 03 — Instrument View from seeded research data
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Instrument View shows last price suitable for orientation
-- [ ] Instrument View shows a simple chart (not a TA terminal)
-- [ ] Price failures do not block Stories, scores, or Rationales
-- [ ] Automated tests use a fake price provider and assert trader-visible Price Context behavior
+- [x] Instrument View shows last price suitable for orientation
+- [x] Instrument View shows a simple chart (not a TA terminal)
+- [x] Price failures do not block Stories, scores, or Rationales
+- [x] Automated tests use a fake price provider and assert trader-visible Price Context behavior
+
+## Comments
+
+### Implementation notes (agent)
+
+- New port `PriceContextProvider` (`price-context.ts`) with `InstrumentPriceContext` available/unavailable union.
+- Fake adapter + failing adapter + seed quotes (`infrastructure/price/`); composition root seeds demo quotes from wall clock.
+- `getInstrumentResearch` requires `priceProvider`; loads Stories first, then Price Context with try/catch so provider throws never return `error` for coverage.
+- Instrument View UI: last price + SVG orientation polyline; dashed unavailable state that still shows Stories below.
+- Tests: `pre-trade-research-surface.test.ts` Price Context block (5 cases) at primary seam with fake provider.

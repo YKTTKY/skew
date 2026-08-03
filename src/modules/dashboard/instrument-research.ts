@@ -1,6 +1,10 @@
 import type { AuthSession } from "@/modules/auth/types";
 import type { InstrumentCatalog } from "@/modules/dashboard/instrument-catalog";
 import type {
+  InstrumentPriceContext,
+  PriceContextProvider,
+} from "@/modules/dashboard/price-context";
+import type {
   InstrumentStoryResearch,
   ResearchSurfaceStore,
 } from "@/modules/dashboard/research-surface";
@@ -23,6 +27,8 @@ export type InstrumentResearchResult =
       empty: boolean;
       stories: InstrumentStoryResearch[];
       emptyStateMessage: string;
+      /** Price Context for orientation; unavailable never blocks coverage. */
+      priceContext: InstrumentPriceContext;
     };
 
 /** Empty Instrument View copy when no Stories fall in the Research Window. */
@@ -40,6 +46,8 @@ export const INSTRUMENT_LOAD_ERROR_MESSAGE =
 export type InstrumentResearchDeps = {
   catalog: InstrumentCatalog;
   researchStore: ResearchSurfaceStore;
+  /** Lightweight market-data adapter for Price Context (fakeable in tests). */
+  priceProvider: PriceContextProvider;
   /** Clock for Research Window filtering (tests inject a fixed instant). */
   asOf?: Date;
   researchWindowDays?: number;
@@ -48,8 +56,9 @@ export type InstrumentResearchDeps = {
 /**
  * Instrument View entry for Pre-Trade Research.
  * Auth-gated; works for any known Instrument (Watchlist membership not required).
- * Returns Stories in the Research Window with Story × Instrument rollups and
- * Article × Instrument breakdowns. Unlinked Articles never appear.
+ * Returns Stories in the Research Window with Story × Instrument rollups,
+ * Article × Instrument breakdowns, and lightweight Price Context.
+ * Unlinked Articles never appear. Price failures never block coverage.
  */
 export async function getInstrumentResearch(
   session: AuthSession,
@@ -73,25 +82,43 @@ export async function getInstrumentResearch(
   const asOf = deps.asOf ?? new Date();
   const windowDays = deps.researchWindowDays ?? RESEARCH_WINDOW_DAYS;
 
+  let stories: InstrumentStoryResearch[];
   try {
-    const stories = await deps.researchStore.listStoriesForInstrument({
+    stories = await deps.researchStore.listStoriesForInstrument({
       ticker: instrument.ticker,
       asOf,
       windowDays,
     });
-
-    const empty = stories.length === 0;
-    return {
-      status: "ok",
-      ticker: instrument.ticker,
-      empty,
-      stories,
-      emptyStateMessage: empty ? INSTRUMENT_EMPTY_STATE_MESSAGE : "",
-    };
   } catch {
     return {
       status: "error",
       message: INSTRUMENT_LOAD_ERROR_MESSAGE,
     };
+  }
+
+  const priceContext = await loadPriceContext(
+    deps.priceProvider,
+    instrument.ticker,
+  );
+
+  const empty = stories.length === 0;
+  return {
+    status: "ok",
+    ticker: instrument.ticker,
+    empty,
+    stories,
+    emptyStateMessage: empty ? INSTRUMENT_EMPTY_STATE_MESSAGE : "",
+    priceContext,
+  };
+}
+
+async function loadPriceContext(
+  provider: PriceContextProvider,
+  ticker: string,
+): Promise<InstrumentPriceContext> {
+  try {
+    return await provider.getPriceContext({ ticker });
+  } catch {
+    return { status: "unavailable" };
   }
 }

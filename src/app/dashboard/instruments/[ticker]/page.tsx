@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getAuthSession } from "@/infrastructure/auth/get-auth-session";
 import { getInstrumentCatalog } from "@/infrastructure/persistence/instrument-catalog";
 import { getResearchSurfaceStore } from "@/infrastructure/persistence/research-surface-store";
+import { getPriceContextProvider } from "@/infrastructure/price/price-context-provider";
 import { getInstrumentResearch } from "@/modules/dashboard/instrument-research";
 import type {
   BiasLabel,
@@ -10,6 +11,10 @@ import type {
   InstrumentStoryResearch,
   SentimentLabel,
 } from "@/modules/dashboard/research-surface";
+import type {
+  InstrumentPriceContext,
+  PriceContext,
+} from "@/modules/dashboard/price-context";
 
 type InstrumentPageProps = {
   params: Promise<{ ticker: string }>;
@@ -17,7 +22,7 @@ type InstrumentPageProps = {
 
 /**
  * Instrument View — Pre-Trade Research for one Instrument.
- * Seeded Stories with Story × Instrument rollups and Article × Instrument breakdowns.
+ * Stories with rollups/breakdowns plus lightweight Price Context for orientation.
  */
 export default async function InstrumentViewPage({ params }: InstrumentPageProps) {
   const { ticker } = await params;
@@ -25,6 +30,7 @@ export default async function InstrumentViewPage({ params }: InstrumentPageProps
   const research = await getInstrumentResearch(session, ticker, {
     catalog: getInstrumentCatalog(),
     researchStore: getResearchSurfaceStore(),
+    priceProvider: getPriceContextProvider(),
   });
 
   if (research.status === "unauthenticated") {
@@ -91,6 +97,8 @@ export default async function InstrumentViewPage({ params }: InstrumentPageProps
       </h1>
       <p className="mt-1 text-sm text-zinc-500">Instrument View · Pre-Trade Research</p>
 
+      <PriceContextPanel priceContext={research.priceContext} />
+
       {research.empty ? (
         <section
           className="mt-10 rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-center"
@@ -129,6 +137,118 @@ function BackToWatchlist() {
         ← Watchlist
       </Link>
     </p>
+  );
+}
+
+/**
+ * Lightweight last price + simple chart for orientation during Pre-Trade Research.
+ * Not a charting or technical-analysis workstation.
+ */
+function PriceContextPanel({
+  priceContext,
+}: {
+  priceContext: InstrumentPriceContext;
+}) {
+  if (priceContext.status === "unavailable") {
+    return (
+      <section
+        className="mt-6 rounded-lg border border-dashed border-zinc-200 bg-zinc-50 px-4 py-3"
+        data-testid="price-context-unavailable"
+      >
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Price Context
+        </p>
+        <p className="mt-1 text-sm text-zinc-600">
+          Price Context is temporarily unavailable. Stories and scores below are
+          still available for Pre-Trade Research.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className="mt-6 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+      data-testid="price-context"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            Price Context
+          </p>
+          <p
+            className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-zinc-900"
+            data-testid="price-context-last"
+          >
+            {formatLastPrice(priceContext)}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Last price · orientation only · as of{" "}
+            {formatFreshness(priceContext.asOf)}
+          </p>
+        </div>
+        <OrientationChart series={priceContext.series} />
+      </div>
+    </section>
+  );
+}
+
+function formatLastPrice(ctx: PriceContext): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: ctx.currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(ctx.lastPrice);
+  } catch {
+    return `${ctx.lastPrice.toFixed(2)} ${ctx.currency}`;
+  }
+}
+
+/** Simple SVG path chart — orientation only, not TA tools. */
+function OrientationChart({ series }: { series: PriceContext["series"] }) {
+  if (series.length < 2) {
+    return null;
+  }
+
+  const width = 160;
+  const height = 48;
+  const pad = 2;
+  const prices = series.map((p) => p.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const span = max - min || 1;
+
+  const points = series
+    .map((point, i) => {
+      const x =
+        pad + (i / (series.length - 1)) * (width - pad * 2);
+      const y =
+        height - pad - ((point.price - min) / span) * (height - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label="Simple price orientation chart"
+      data-testid="price-context-chart"
+      className="shrink-0 text-zinc-700"
+    >
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={points}
+      />
+    </svg>
   );
 }
 
