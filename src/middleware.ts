@@ -2,6 +2,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
+  // Live research SSE — same auth gate as Dashboard surfaces.
+  "/api/dashboard(.*)",
 ]);
 
 /**

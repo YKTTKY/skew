@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { LiveResearchRefresh } from "@/app/dashboard/live-research-refresh";
 import { WatchlistManager } from "@/app/dashboard/watchlist-manager";
 import { getAuthSession } from "@/infrastructure/auth/get-auth-session";
 import { getPersonalSurfaceStore } from "@/infrastructure/persistence/personal-surface-store";
@@ -15,6 +16,7 @@ import type {
 
 /**
  * Watchlist home — current set, prioritized Stories/scores, and Instrument navigation.
+ * LiveResearchRefresh keeps home current when Stories land for followed Instruments.
  */
 export default async function DashboardHomePage() {
   const session = await getAuthSession();
@@ -35,6 +37,10 @@ export default async function DashboardHomePage() {
       <p className="mt-1 text-sm text-zinc-500">
         Pre-Trade Research home for Instruments you follow.
       </p>
+
+      {!home.empty ? (
+        <LiveResearchRefresh surface={{ kind: "watchlist" }} />
+      ) : null}
 
       {!home.empty ? (
         <HomeStoriesSection

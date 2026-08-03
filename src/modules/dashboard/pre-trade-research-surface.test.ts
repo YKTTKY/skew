@@ -33,6 +33,13 @@ import {
   getWatchlistHome,
   type WatchlistHomeDeps,
 } from "@/modules/dashboard/watchlist-home";
+import {
+  isUsefullySmallLiveEvent,
+  type ResearchLiveEvent,
+} from "@/modules/dashboard/research-live";
+import { openResearchLive } from "@/modules/dashboard/open-research-live";
+import { InMemoryResearchLiveBus } from "@/infrastructure/realtime/in-memory-research-live-bus";
+import { NotifyingPipelineResearchWriter } from "@/modules/pipeline/notifying-research-writer";
 import type { RetailTraderSession } from "@/modules/auth/types";
 import type { PersonalSurfaceStore } from "@/modules/dashboard/personal-surface";
 import type { PriceContextProvider } from "@/modules/dashboard/price-context";
@@ -1703,6 +1710,369 @@ describe("Pre-Trade Research surface — linking rules and Story clustering", ()
     for (const title of forbiddenTitles) {
       expect(instrumentTitles).not.toContain(title);
       expect(homeTitles).not.toContain(title);
+    }
+  });
+});
+
+/**
+ * Seam: Retail Trader Pre-Trade Research surface — live Dashboard updates.
+ * Asserts open Instrument View / Watchlist home receive small research
+ * invalidations when Stories land; personal Watchlist traffic never rides
+ * the research bus; re-reads show new scores without inventing a full reload API.
+ */
+describe("Pre-Trade Research surface — live Dashboard realtime", () => {
+  const alice: RetailTraderSession = { retailTraderId: "trader_alice" };
+  const bob: RetailTraderSession = { retailTraderId: "trader_bob" };
+
+  function livePipelineHarness() {
+    const researchStore = new InMemoryResearchSurfaceStore([]);
+    const liveBus = new InMemoryResearchLiveBus();
+    const researchWriter = new NotifyingPipelineResearchWriter(
+      researchStore,
+      liveBus,
+    );
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const queue = new InMemoryJobQueue();
+    const ai = new FakeAiPort({
+      scoresByTitleAndTicker: {
+        "Apple expands services revenue|AAPL": {
+          bias: "bullish",
+          biasRationale:
+            "Coverage frames services growth and recurring revenue as constructive for Apple.",
+          sentiment: "calm",
+          sentimentRationale:
+            "Tone stays measured product and financial reporting rather than alarm.",
+        },
+        "Services mix lifts Apple as hardware stays steady|AAPL": {
+          bias: "bullish",
+          biasRationale:
+            "Coverage frames services growth and recurring revenue as constructive for Apple.",
+          sentiment: "calm",
+          sentimentRationale:
+            "Tone stays measured product and financial reporting rather than alarm.",
+        },
+        "Suppliers note steady component orders for phones|AAPL": {
+          bias: "bullish",
+          biasRationale:
+            "Supplier order commentary implies steady unit expectations for Apple.",
+          sentiment: "neutral",
+          sentimentRationale:
+            "Operational supply-chain language without strong emotional framing.",
+        },
+        "Antitrust officials examine tech partnership terms|AAPL": {
+          bias: "bearish",
+          biasRationale:
+            "For Apple, coverage stresses scrutiny risk and possible deal friction.",
+          sentiment: "alarmist",
+          sentimentRationale:
+            "Language around enforcement and delays is elevated for Apple.",
+        },
+        "Antitrust officials examine tech partnership terms|MSFT": {
+          bias: "neutral",
+          biasRationale:
+            "For Microsoft, pieces treat the talks as procedural with limited franchise impact.",
+          sentiment: "calm",
+          sentimentRationale:
+            "Microsoft-framed passages stay measured and process-oriented.",
+        },
+        "Cloud demand outlook stays mixed into next quarter|MSFT": {
+          bias: "neutral",
+          biasRationale:
+            "Pieces treat cloud demand commentary as balanced for Microsoft with limited franchise tilt.",
+          sentiment: "calm",
+          sentimentRationale:
+            "Language around Microsoft cloud is process-oriented and calm.",
+        },
+      },
+    });
+
+    registerPipelineWorkers({
+      queue,
+      ai,
+      catalog,
+      researchWriter,
+      batchStore: new InMemoryPipelineBatchStore(),
+    });
+
+    return { researchStore, liveBus, researchWriter, catalog, queue };
+  }
+
+  it("denies unauthenticated live research subscriptions", async () => {
+    const bus = new InMemoryResearchLiveBus();
+    const result = await openResearchLive(
+      null,
+      { kind: "instrument", ticker: "AAPL" },
+      { bus },
+      () => {},
+    );
+    expect(result).toEqual({ status: "unauthenticated" });
+    expect(bus.listenerCount()).toBe(0);
+  });
+
+  it("notifies open Instrument View when new Stories/scores land for that Instrument", async () => {
+    const { researchStore, liveBus, queue } = livePipelineHarness();
+    const received: ResearchLiveEvent[] = [];
+
+    const opened = await openResearchLive(
+      alice,
+      { kind: "instrument", ticker: "AAPL" },
+      { bus: liveBus },
+      (event) => {
+        received.push(event);
+      },
+    );
+    expect(opened.status).toBe("ok");
+
+    const before = await getInstrumentResearch(
+      alice,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    expect(before.status).toBe("ok");
+    if (before.status === "ok") {
+      expect(before.empty).toBe(true);
+    }
+
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(AS_OF));
+    await queue.drain();
+
+    expect(received.length).toBeGreaterThan(0);
+    expect(received.every((e) => e.tickers.includes("AAPL"))).toBe(true);
+    expect(received.every(isUsefullySmallLiveEvent)).toBe(true);
+
+    // Live signal is an invalidation: re-read shows newly landed research
+    // (open view path — no full manual refresh of unrelated tables).
+    const after = await getInstrumentResearch(
+      alice,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    expect(after.status).toBe("ok");
+    if (after.status !== "ok") return;
+    expect(after.empty).toBe(false);
+    expect(after.stories.length).toBeGreaterThan(0);
+
+    if (opened.status === "ok") {
+      opened.subscription.unsubscribe();
+    }
+  });
+
+  it("does not deliver Instrument-scoped events for unrelated tickers", async () => {
+    const { liveBus, queue } = livePipelineHarness();
+    const nvdaEvents: ResearchLiveEvent[] = [];
+
+    const opened = await openResearchLive(
+      alice,
+      { kind: "instrument", ticker: "NVDA" },
+      { bus: liveBus },
+      (event) => {
+        nvdaEvents.push(event);
+      },
+    );
+    expect(opened.status).toBe("ok");
+
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(AS_OF));
+    await queue.drain();
+
+    // Fixture covers AAPL/MSFT (and macro), not NVDA equity stories.
+    expect(nvdaEvents).toEqual([]);
+
+    if (opened.status === "ok") {
+      opened.subscription.unsubscribe();
+    }
+  });
+
+  it("notifies open Watchlist home only for followed Instruments", async () => {
+    const { researchStore, liveBus, catalog, queue } = livePipelineHarness();
+    const personal = new InMemoryPersonalSurfaceStore();
+    await addInstrumentToWatchlist(alice, personal, catalog, "AAPL");
+
+    const homeEvents: ResearchLiveEvent[] = [];
+    // Scope tickers resolved from personal store — not client-supplied lists.
+    const opened = await openResearchLive(
+      alice,
+      { kind: "watchlist" },
+      { bus: liveBus, personalStore: personal },
+      (event) => {
+        homeEvents.push(event);
+      },
+    );
+    expect(opened.status).toBe("ok");
+    if (opened.status === "ok") {
+      expect(opened.scope).toEqual({ kind: "watchlist", tickers: ["AAPL"] });
+    }
+
+    const before = await getWatchlistHome(
+      alice,
+      homeDeps(personal, researchStore),
+    );
+    expect(before.status).toBe("ok");
+    if (before.status === "ok") {
+      expect(before.noCoverage).toBe(true);
+    }
+
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(AS_OF));
+    await queue.drain();
+
+    expect(homeEvents.length).toBeGreaterThan(0);
+    expect(homeEvents.every((e) => e.tickers.includes("AAPL"))).toBe(true);
+    expect(homeEvents.every(isUsefullySmallLiveEvent)).toBe(true);
+
+    const after = await getWatchlistHome(
+      alice,
+      homeDeps(personal, researchStore),
+    );
+    expect(after.status).toBe("ok");
+    if (after.status !== "ok") return;
+    expect(after.noCoverage).toBe(false);
+    expect(after.stories.length).toBeGreaterThan(0);
+    expect(
+      after.stories.every((s) =>
+        s.relatedInstruments.every((r) => r.ticker === "AAPL"),
+      ),
+    ).toBe(true);
+
+    if (opened.status === "ok") {
+      opened.subscription.unsubscribe();
+    }
+  });
+
+  it("does not notify a Watchlist home that does not follow the updated Instrument", async () => {
+    const { liveBus, catalog, queue } = livePipelineHarness();
+    const personal = new InMemoryPersonalSurfaceStore();
+    // Alice follows only NVDA — fixture research is AAPL/MSFT oriented.
+    await addInstrumentToWatchlist(alice, personal, catalog, "NVDA");
+
+    const homeEvents: ResearchLiveEvent[] = [];
+    const opened = await openResearchLive(
+      alice,
+      { kind: "watchlist" },
+      { bus: liveBus, personalStore: personal },
+      (event) => {
+        homeEvents.push(event);
+      },
+    );
+    expect(opened.status).toBe("ok");
+
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(AS_OF));
+    await queue.drain();
+
+    expect(homeEvents).toEqual([]);
+
+    if (opened.status === "ok") {
+      opened.subscription.unsubscribe();
+    }
+  });
+
+  it("does not put personal Watchlist membership on the research live bus", async () => {
+    const liveBus = new InMemoryResearchLiveBus();
+    const personal = new InMemoryPersonalSurfaceStore();
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const researchEvents: ResearchLiveEvent[] = [];
+
+    // Seed personal first so Watchlist live scopes resolve for each subject.
+    await addInstrumentToWatchlist(alice, personal, catalog, "AAPL");
+    await addInstrumentToWatchlist(bob, personal, catalog, "NVDA");
+
+    const aliceLive = await openResearchLive(
+      alice,
+      { kind: "watchlist" },
+      { bus: liveBus, personalStore: personal },
+      (event) => {
+        researchEvents.push(event);
+      },
+    );
+    const bobLive = await openResearchLive(
+      bob,
+      { kind: "watchlist" },
+      { bus: liveBus, personalStore: personal },
+      (event) => {
+        researchEvents.push(event);
+      },
+    );
+    expect(aliceLive.status).toBe("ok");
+    expect(bobLive.status).toBe("ok");
+
+    // Further personal mutations only — no research publish.
+    await addInstrumentToWatchlist(alice, personal, catalog, "MSFT");
+    await removeInstrumentFromWatchlist(alice, personal, "MSFT");
+
+    expect(researchEvents).toEqual([]);
+
+    // Isolation still holds on the personal surface.
+    const bobHome = await getWatchlistHome(bob, homeDeps(personal));
+    const aliceHome = await getWatchlistHome(alice, homeDeps(personal));
+    expect(bobHome.status).toBe("ok");
+    expect(aliceHome.status).toBe("ok");
+    if (bobHome.status === "ok" && aliceHome.status === "ok") {
+      expect(bobHome.instruments.map((i) => i.ticker)).toEqual(["NVDA"]);
+      expect(aliceHome.instruments.map((i) => i.ticker)).toEqual(["AAPL"]);
+    }
+
+    if (aliceLive.status === "ok") aliceLive.subscription.unsubscribe();
+    if (bobLive.status === "ok") bobLive.subscription.unsubscribe();
+  });
+
+  it("resolves Watchlist live scope from the subject’s personal store, not peer membership", async () => {
+    const liveBus = new InMemoryResearchLiveBus();
+    const personal = new InMemoryPersonalSurfaceStore();
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+
+    await addInstrumentToWatchlist(alice, personal, catalog, "AAPL");
+    await addInstrumentToWatchlist(bob, personal, catalog, "MSFT");
+
+    const aliceLive = await openResearchLive(
+      alice,
+      { kind: "watchlist" },
+      { bus: liveBus, personalStore: personal },
+      () => {},
+    );
+    const bobLive = await openResearchLive(
+      bob,
+      { kind: "watchlist" },
+      { bus: liveBus, personalStore: personal },
+      () => {},
+    );
+
+    expect(aliceLive.status).toBe("ok");
+    expect(bobLive.status).toBe("ok");
+    if (aliceLive.status === "ok" && bobLive.status === "ok") {
+      expect(aliceLive.scope).toEqual({ kind: "watchlist", tickers: ["AAPL"] });
+      expect(bobLive.scope).toEqual({ kind: "watchlist", tickers: ["MSFT"] });
+      // Neither scope includes the other Retail Trader’s membership.
+      expect(aliceLive.scope).not.toEqual(bobLive.scope);
+    }
+
+    if (aliceLive.status === "ok") aliceLive.subscription.unsubscribe();
+    if (bobLive.status === "ok") bobLive.subscription.unsubscribe();
+  });
+
+  it("keeps live payloads free of full Story tables and Article bodies", async () => {
+    const { liveBus, queue } = livePipelineHarness();
+    const received: ResearchLiveEvent[] = [];
+
+    const opened = await openResearchLive(
+      alice,
+      { kind: "instrument", ticker: "AAPL" },
+      { bus: liveBus },
+      (event) => {
+        received.push(event);
+      },
+    );
+
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(AS_OF));
+    await queue.drain();
+
+    expect(received.length).toBeGreaterThan(0);
+    for (const event of received) {
+      expect(isUsefullySmallLiveEvent(event)).toBe(true);
+      const blob = JSON.stringify(event);
+      expect(blob).not.toMatch(/biasRationale|sentimentRationale|articles/);
+      expect(blob.length).toBeLessThan(2_048);
+    }
+
+    if (opened.status === "ok") {
+      opened.subscription.unsubscribe();
     }
   });
 });

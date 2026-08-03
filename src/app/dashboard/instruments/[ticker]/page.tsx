@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { LiveResearchRefresh } from "@/app/dashboard/live-research-refresh";
 import { getAuthSession } from "@/infrastructure/auth/get-auth-session";
 import { getInstrumentCatalog } from "@/infrastructure/persistence/instrument-catalog";
 import { getResearchSurfaceStore } from "@/infrastructure/persistence/research-surface-store";
@@ -23,6 +24,7 @@ type InstrumentPageProps = {
 /**
  * Instrument View — Pre-Trade Research for one Instrument.
  * Stories with rollups/breakdowns plus lightweight Price Context for orientation.
+ * LiveResearchRefresh keeps the open view current when new Stories/scores land.
  */
 export default async function InstrumentViewPage({ params }: InstrumentPageProps) {
   const { ticker } = await params;
@@ -96,6 +98,10 @@ export default async function InstrumentViewPage({ params }: InstrumentPageProps
         {research.ticker}
       </h1>
       <p className="mt-1 text-sm text-zinc-500">Instrument View · Pre-Trade Research</p>
+
+      <LiveResearchRefresh
+        surface={{ kind: "instrument", ticker: research.ticker }}
+      />
 
       <PriceContextPanel priceContext={research.priceContext} />
 
