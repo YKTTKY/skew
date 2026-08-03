@@ -18,6 +18,9 @@ export type NimAiPortConfig = {
  *
  * Thin v1: real HTTP when configured; throws a clear error if credentials
  * are missing so local work uses FakeAiPort instead.
+ *
+ * Embeddings for nv-embedqa-* require NVIDIA's `input_type` (`passage` | `query`)
+ * in addition to the OpenAI-shaped body — omitting it yields HTTP 400.
  */
 export class NimAiPort implements AiPort {
   private readonly baseUrl: string;
@@ -45,14 +48,22 @@ export class NimAiPort implements AiPort {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify({
         model: this.embeddingModel,
         input: input.text,
+        // Required by nvidia/nv-embedqa-e5-v5 (and related embedqa models).
+        // "passage" = document indexing; "query" = retrieval queries.
+        input_type: "passage",
+        encoding_format: "float",
+        truncate: "END",
       }),
     });
     if (!res.ok) {
-      throw new Error(`NIM embeddings failed: HTTP ${res.status}`);
+      throw new Error(
+        `NIM embeddings failed: HTTP ${res.status}${await formatErrorBody(res)}`,
+      );
     }
     const body = (await res.json()) as {
       data?: Array<{ embedding?: number[] }>;
@@ -88,19 +99,22 @@ export class NimAiPort implements AiPort {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify({
         model: this.chatModel,
-        temperature: 0,
+        temperature: 0.2,
+        max_tokens: 400,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: { type: "json_object" },
       }),
     });
     if (!res.ok) {
-      throw new Error(`NIM chat score failed: HTTP ${res.status}`);
+      throw new Error(
+        `NIM chat score failed: HTTP ${res.status}${await formatErrorBody(res)}`,
+      );
     }
     const body = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -113,15 +127,26 @@ export class NimAiPort implements AiPort {
   }
 }
 
+async function formatErrorBody(res: Response): Promise<string> {
+  try {
+    const text = (await res.text()).trim();
+    if (!text) {
+      return "";
+    }
+    // Keep logs short; full HTML error pages are not useful.
+    const clipped = text.length > 500 ? `${text.slice(0, 500)}…` : text;
+    return ` — ${clipped}`;
+  } catch {
+    return "";
+  }
+}
+
 function parseScoreJson(content: string): ArticleInstrumentScore {
-  const parsed = JSON.parse(content) as Partial<ArticleInstrumentScore>;
+  const jsonText = extractJsonObject(content);
+  const parsed = JSON.parse(jsonText) as Partial<ArticleInstrumentScore>;
   const bias = parsed.bias;
   const sentiment = parsed.sentiment;
-  if (
-    bias !== "bullish" &&
-    bias !== "bearish" &&
-    bias !== "neutral"
-  ) {
+  if (bias !== "bullish" && bias !== "bearish" && bias !== "neutral") {
     throw new Error("NIM score JSON missing valid bias");
   }
   if (
@@ -140,4 +165,16 @@ function parseScoreJson(content: string): ArticleInstrumentScore {
     sentiment,
     sentimentRationale: parsed.sentimentRationale.trim(),
   };
+}
+
+/** Models sometimes wrap JSON in markdown fences or prose. */
+function extractJsonObject(content: string): string {
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = (fenced?.[1] ?? content).trim();
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    return candidate.slice(start, end + 1);
+  }
+  return candidate;
 }

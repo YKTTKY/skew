@@ -66,14 +66,26 @@ async function main(): Promise<void> {
 }
 
 function createAiPort(): AiPort {
-  const apiKey = process.env.NIM_API_KEY ?? "";
+  // NVIDIA docs often use NVIDIA_API_KEY; accept both.
+  const apiKey =
+    process.env.NIM_API_KEY?.trim() ||
+    process.env.NVIDIA_API_KEY?.trim() ||
+    "";
   const baseUrl =
-    process.env.NIM_BASE_URL ?? "https://integrate.api.nvidia.com/v1";
+    process.env.NIM_BASE_URL?.trim() ||
+    "https://integrate.api.nvidia.com/v1";
   if (apiKey) {
     console.log("Using NimAiPort (NVIDIA NIM development adapter)");
-    return new NimAiPort({ baseUrl, apiKey });
+    return new NimAiPort({
+      baseUrl,
+      apiKey,
+      embeddingModel: process.env.NIM_EMBEDDING_MODEL?.trim() || undefined,
+      chatModel: process.env.NIM_CHAT_MODEL?.trim() || undefined,
+    });
   }
-  console.log("NIM_API_KEY unset — using FakeAiPort for local fixture run");
+  console.log(
+    "NIM_API_KEY / NVIDIA_API_KEY unset — using FakeAiPort for local fixture run",
+  );
   return new FakeAiPort();
 }
 
