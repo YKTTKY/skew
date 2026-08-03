@@ -4,14 +4,14 @@
 
 **Blocked by:** 03 — Instrument View from seeded research data
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] Pipeline work runs async (jobs/workers), not on the Dashboard request path
-- [ ] Fixture/curated Source ingest produces durable Articles visible after linking/scoring
-- [ ] Syndication near-duplicates collapse to one Article with multiple Sources when applicable
-- [ ] Explicit ticker/cashtag/metadata linking attaches Articles to Instruments
-- [ ] Article × Instrument scores and Rationales land via the AI port (fake in tests)
-- [ ] Story × Instrument rollups appear on the Instrument View without manual seed
-- [ ] Unlinked Articles never appear on trader-facing surfaces
-- [ ] Rationales/prompts under test produce no buy/sell/hold or soft “should act” language
-- [ ] Automated tests assert trader-visible outcomes after the job path runs (not queue internals)
+- [x] Pipeline work runs async (jobs/workers), not on the Dashboard request path
+- [x] Fixture/curated Source ingest produces durable Articles visible after linking/scoring
+- [x] Syndication near-duplicates collapse to one Article with multiple Sources when applicable
+- [x] Explicit ticker/cashtag/metadata linking attaches Articles to Instruments
+- [x] Article × Instrument scores and Rationales land via the AI port (fake in tests)
+- [x] Story × Instrument rollups appear on the Instrument View without manual seed
+- [x] Unlinked Articles never appear on trader-facing surfaces
+- [x] Rationales/prompts under test produce no buy/sell/hold or soft “should act” language
+- [x] Automated tests assert trader-visible outcomes after the job path runs (not queue internals)

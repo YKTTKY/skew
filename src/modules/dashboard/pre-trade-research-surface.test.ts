@@ -14,10 +14,16 @@ import {
   FakePriceContextProvider,
 } from "@/infrastructure/price/fake-price-context-provider";
 import { buildSeedPriceContextQuotes } from "@/infrastructure/price/seed-price-context";
+import { FakeAiPort } from "@/infrastructure/ai/fake-ai-port";
+import { InMemoryPipelineBatchStore } from "@/infrastructure/pipeline/in-memory-batch-store";
+import { buildPipelineFixtureFeed } from "@/infrastructure/pipeline/fixture-sources";
+import { InMemoryJobQueue } from "@/infrastructure/queue/in-memory-job-queue";
 import {
   getInstrumentResearch,
   type InstrumentResearchDeps,
 } from "@/modules/dashboard/instrument-research";
+import { enqueueFixtureIngest } from "@/modules/pipeline/enqueue-fixture";
+import { registerPipelineWorkers } from "@/modules/pipeline/register-workers";
 import {
   addInstrumentToWatchlist,
   removeInstrumentFromWatchlist,
@@ -920,6 +926,334 @@ describe("Pre-Trade Research surface — Watchlist home Stories", () => {
       }
     }
 
+    for (const text of copySnippets) {
+      expect(text).not.toMatch(RECOMMENDATION_LANGUAGE);
+    }
+  });
+});
+
+/**
+ * Seam: Retail Trader Pre-Trade Research surface after thin pipeline jobs run.
+ * Asserts trader-visible Instrument View outcomes from fixture Source ingest
+ * through score — not queue row formats or AI vendor SDK shapes.
+ */
+describe("Pre-Trade Research surface — thin pipeline fixture to scores", () => {
+  const session: RetailTraderSession = { retailTraderId: "trader_alice" };
+
+  /**
+   * Independent expected scores/rationales for the fixture + FakeAiPort map.
+   * Not imported from production score tables (avoids tautological tests).
+   */
+  const EXPECTED_AAPL_SERVICES_BIAS_RATIONALE =
+    "Coverage frames services growth and recurring revenue as constructive for Apple.";
+  const EXPECTED_AAPL_SERVICES_SENTIMENT_RATIONALE =
+    "Tone stays measured product and financial reporting rather than alarm.";
+  const EXPECTED_MSFT_CLOUD_BIAS_RATIONALE =
+    "Pieces treat cloud demand commentary as balanced for Microsoft with limited franchise tilt.";
+  const EXPECTED_MSFT_CLOUD_SENTIMENT_RATIONALE =
+    "Language around Microsoft cloud is process-oriented and calm.";
+  const EXPECTED_AAPL_MA_BIAS_RATIONALE =
+    "For Apple, coverage stresses scrutiny risk and possible deal friction.";
+  const EXPECTED_AAPL_MA_SENTIMENT_RATIONALE =
+    "Language around enforcement and delays is elevated for Apple.";
+  const EXPECTED_MSFT_MA_BIAS_RATIONALE =
+    "For Microsoft, pieces treat the talks as procedural with limited franchise impact.";
+  const EXPECTED_MSFT_MA_SENTIMENT_RATIONALE =
+    "Microsoft-framed passages stay measured and process-oriented.";
+
+  function pipelineHarness() {
+    const researchStore = new InMemoryResearchSurfaceStore([]);
+    const catalog = new InMemoryInstrumentCatalog(SEED_INSTRUMENTS);
+    const queue = new InMemoryJobQueue();
+    const ai = new FakeAiPort({
+      scoresByTitleAndTicker: {
+        "Apple expands services revenue|AAPL": {
+          bias: "bullish",
+          biasRationale: EXPECTED_AAPL_SERVICES_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_AAPL_SERVICES_SENTIMENT_RATIONALE,
+        },
+        "Suppliers note steady component orders for phones|AAPL": {
+          bias: "bullish",
+          biasRationale:
+            "Supplier order commentary implies steady unit expectations for Apple.",
+          sentiment: "neutral",
+          sentimentRationale:
+            "Operational supply-chain language without strong emotional framing.",
+        },
+        "Antitrust officials examine tech partnership terms|AAPL": {
+          bias: "bearish",
+          biasRationale: EXPECTED_AAPL_MA_BIAS_RATIONALE,
+          sentiment: "alarmist",
+          sentimentRationale: EXPECTED_AAPL_MA_SENTIMENT_RATIONALE,
+        },
+        "Antitrust officials examine tech partnership terms|MSFT": {
+          bias: "neutral",
+          biasRationale: EXPECTED_MSFT_MA_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_MSFT_MA_SENTIMENT_RATIONALE,
+        },
+        "Cloud demand outlook stays mixed into next quarter|MSFT": {
+          bias: "neutral",
+          biasRationale: EXPECTED_MSFT_CLOUD_BIAS_RATIONALE,
+          sentiment: "calm",
+          sentimentRationale: EXPECTED_MSFT_CLOUD_SENTIMENT_RATIONALE,
+        },
+      },
+    });
+
+    registerPipelineWorkers({
+      queue,
+      ai,
+      catalog,
+      researchWriter: researchStore,
+      batchStore: new InMemoryPipelineBatchStore(),
+    });
+
+    return { researchStore, catalog, queue, ai };
+  }
+
+  async function runFixturePipeline(
+    queue: InMemoryJobQueue,
+    asOf: Date = AS_OF,
+  ): Promise<void> {
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(asOf));
+    await queue.drain();
+  }
+
+  it("does not populate Instrument View until pipeline jobs are processed", async () => {
+    const { researchStore, queue } = pipelineHarness();
+
+    await enqueueFixtureIngest(queue, buildPipelineFixtureFeed(AS_OF));
+    // Jobs enqueued but not drained — Dashboard must not block on pipeline work.
+
+    const before = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(before.status).toBe("ok");
+    if (before.status !== "ok") return;
+    expect(before.empty).toBe(true);
+    expect(before.stories).toEqual([]);
+  });
+
+  it("surfaces scored Stories on Instrument View after fixture Source jobs complete", async () => {
+    const { researchStore, queue } = pipelineHarness();
+
+    await runFixturePipeline(queue);
+
+    const result = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    expect(result.empty).toBe(false);
+    expect(result.stories.length).toBeGreaterThan(0);
+
+    const services = result.stories.find((s) =>
+      s.articles.some((a) => a.title === "Apple expands services revenue"),
+    );
+    expect(services).toBeDefined();
+    expect(services?.bias.label).toBe("bullish");
+    expect(services?.bias.rationale).toBe(EXPECTED_AAPL_SERVICES_BIAS_RATIONALE);
+    expect(services?.sentiment.label).toBe("calm");
+    expect(services?.sentiment.rationale).toBe(
+      EXPECTED_AAPL_SERVICES_SENTIMENT_RATIONALE,
+    );
+
+    const article = services?.articles.find(
+      (a) => a.title === "Apple expands services revenue",
+    );
+    expect(article?.bias.label).toBe("bullish");
+    expect(article?.bias.rationale).toBe(EXPECTED_AAPL_SERVICES_BIAS_RATIONALE);
+    expect(article?.sentiment.rationale.length).toBeGreaterThan(0);
+  });
+
+  it("collapses near-identical syndication into one Article with multiple Sources", async () => {
+    const { researchStore, queue } = pipelineHarness();
+
+    await runFixturePipeline(queue);
+
+    const result = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    const servicesArticles = result.stories
+      .flatMap((s) => s.articles)
+      .filter((a) => a.title === "Apple expands services revenue");
+
+    expect(servicesArticles).toHaveLength(1);
+    expect(servicesArticles[0]?.sources).toEqual([
+      "Reuters",
+      "The Wall Street Journal",
+    ]);
+  });
+
+  it("links Articles via explicit tickers, cashtags, and metadata", async () => {
+    const { researchStore, queue } = pipelineHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const msft = await getInstrumentResearch(
+      session,
+      "MSFT",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(aapl.status).toBe("ok");
+    expect(msft.status).toBe("ok");
+    if (aapl.status !== "ok" || msft.status !== "ok") return;
+
+    // Cashtag $AAPL in body → linked.
+    expect(
+      aapl.stories.some((s) =>
+        s.articles.some((a) => a.title === "Apple expands services revenue"),
+      ),
+    ).toBe(true);
+
+    // Explicit ticker token in body → linked.
+    expect(
+      aapl.stories.some((s) =>
+        s.articles.some(
+          (a) => a.title === "Suppliers note steady component orders for phones",
+        ),
+      ),
+    ).toBe(true);
+
+    // metadataTickers only (no ticker in body) → linked to MSFT.
+    expect(
+      msft.stories.some((s) =>
+        s.articles.some(
+          (a) => a.title === "Cloud demand outlook stays mixed into next quarter",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("never surfaces unlinked Articles after the pipeline runs", async () => {
+    const { researchStore, queue } = pipelineHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const msft = await getInstrumentResearch(
+      session,
+      "MSFT",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(aapl.status).toBe("ok");
+    expect(msft.status).toBe("ok");
+    if (aapl.status !== "ok" || msft.status !== "ok") return;
+
+    const allTitles = [...aapl.stories, ...msft.stories].flatMap((s) =>
+      s.articles.map((a) => a.title),
+    );
+    expect(allTitles).not.toContain(
+      "Column without any Instrument markers or metadata",
+    );
+    expect(allTitles).not.toContain("Weekend weather may slow travel plans");
+  });
+
+  it("allows different Article × Instrument scores on a multi-Instrument Story", async () => {
+    const { researchStore, queue } = pipelineHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const msft = await getInstrumentResearch(
+      session,
+      "MSFT",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    expect(aapl.status).toBe("ok");
+    expect(msft.status).toBe("ok");
+    if (aapl.status !== "ok" || msft.status !== "ok") return;
+
+    const aaplMa = aapl.stories.find((s) =>
+      s.articles.some(
+        (a) => a.title === "Antitrust officials examine tech partnership terms",
+      ),
+    );
+    const msftMa = msft.stories.find((s) =>
+      s.articles.some(
+        (a) => a.title === "Antitrust officials examine tech partnership terms",
+      ),
+    );
+
+    expect(aaplMa?.bias.label).toBe("bearish");
+    expect(aaplMa?.sentiment.label).toBe("alarmist");
+    expect(aaplMa?.bias.rationale).toBe(EXPECTED_AAPL_MA_BIAS_RATIONALE);
+    expect(msftMa?.bias.label).toBe("neutral");
+    expect(msftMa?.sentiment.label).toBe("calm");
+    expect(msftMa?.bias.rationale).toBe(EXPECTED_MSFT_MA_BIAS_RATIONALE);
+
+    expect(aaplMa?.articles[0]?.bias.label).toBe("bearish");
+    expect(msftMa?.articles[0]?.bias.label).toBe("neutral");
+  });
+
+  it("keeps pipeline Rationales free of trade recommendations", async () => {
+    const { researchStore, queue } = pipelineHarness();
+
+    await runFixturePipeline(queue);
+
+    const aapl = await getInstrumentResearch(
+      session,
+      "AAPL",
+      emptyResearchDeps({ researchStore }),
+    );
+    const msft = await getInstrumentResearch(
+      session,
+      "MSFT",
+      emptyResearchDeps({ researchStore }),
+    );
+
+    const copySnippets: string[] = [];
+    for (const view of [aapl, msft]) {
+      if (view.status !== "ok") continue;
+      for (const story of view.stories) {
+        copySnippets.push(
+          story.title,
+          story.bias.rationale,
+          story.sentiment.rationale,
+        );
+        for (const article of story.articles) {
+          copySnippets.push(
+            article.title,
+            article.bias.rationale,
+            article.sentiment.rationale,
+            ...article.sources,
+          );
+        }
+      }
+    }
+
+    expect(copySnippets.length).toBeGreaterThan(0);
     for (const text of copySnippets) {
       expect(text).not.toMatch(RECOMMENDATION_LANGUAGE);
     }
