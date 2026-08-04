@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Authenticated Dashboard shell
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Retail Trader can search or pick Instruments by ticker (US equities and ETFs)
 - [x] Retail Trader can add and remove Instruments on their Watchlist

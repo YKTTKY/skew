@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Authenticated Dashboard shell
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Authenticated Retail Trader can open an Instrument View for a known Instrument by ticker
 - [x] Stories outside the Research Window (~90 days) do not appear as current research

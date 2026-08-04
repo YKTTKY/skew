@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Instrument View from seeded research data
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Instrument View shows last price suitable for orientation
 - [x] Instrument View shows a simple chart (not a TA terminal)

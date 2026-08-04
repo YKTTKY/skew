@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Watchlist management; 03 — Instrument View from seeded research data
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Home prioritizes Stories/scores for Watchlist Instruments over unrelated coverage
 - [x] Retail Trader can navigate from a home Story/Instrument into the Instrument View and back
